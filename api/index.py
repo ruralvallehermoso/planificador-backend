@@ -4,23 +4,22 @@ from datetime import date
 from typing import List, Optional, Dict, Any
 import sys
 import os
+
+# Add current directory to sys.path to ensure local modules can be imported
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from contextlib import asynccontextmanager
 
 # Core Imports
-try:
-    import database
-    from database import SessionLocal, get_db, Base, engine
-    from sqlalchemy.orm import Session
-    import crud, models, schemas
-    import seed_data 
-except Exception as e:
-    print(f"❌ Core Import Error: {e}")
+import database
+from database import SessionLocal, get_db, Base, engine
+from sqlalchemy.orm import Session
+import crud, models, schemas
+import seed_data 
 
-# Simulator Import (Incremental Test)
-try:
-    from simulator import calculate_amortization_french, compare_mortgage_vs_portfolio, calculate_daily_comparison
-except Exception as e:
-    print(f"❌ Simulator Import Error: {e}")
+# Simulator Import
+import simulator
+from simulator import calculate_amortization_french, compare_mortgage_vs_portfolio, calculate_daily_comparison
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
