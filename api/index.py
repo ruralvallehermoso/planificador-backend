@@ -90,7 +90,7 @@ def root():
 
 @app.get("/api/sanity")
 def sanity():
-    return {"status": "alive", "version": "v6-FULL-RESTORE", "timestamp": "CHECK_DEBUG_DEPLOY_2", "mode": "full_code"}
+    return {"status": "alive", "version": "v7-CHANGES-RESTORED", "timestamp": "CHECK_DEBUG_DEPLOY_3", "mode": "full_code"}
 
 @app.get("/api/health")
 def health_check():
@@ -104,10 +104,74 @@ def list_assets(category: Optional[str] = None):
             return crud.get_assets_with_performance(db, category)
         finally:
             db.close()
+
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"ASSETS ERROR: {str(e)}")
+
+@app.get("/api/assets/changes")
+def get_assets_24h_changes(min_value: float = 1000, db: Session = Depends(get_db)):
+    """
+    Devuelve el cambio porcentual de 24h para cada activo.
+    Compara el precio actual con el último precio diferente (para manejar fines de semana).
+    Usa asset.price_eur para calcular el valor actual (consistente con lista principal).
+    Solo incluye activos con valor >= min_value (default 1000€).
+    """
+    try:
+        assets = crud.get_assets(db)
+        
+        result = []
+        for asset in assets:
+            # Usar siempre asset.price_eur para el valor actual (consistente con lista principal)
+            current_price = asset.price_eur
+            current_value = current_price * asset.quantity
+            
+            # Filtrar activos con valor menor al mínimo
+            if current_value < min_value:
+                continue
+            
+            # Obtener los últimos precios históricos para encontrar el último cambio real
+            # Buscamos hasta 10 días atrás para cubrir fines de semana y festivos
+            recent_prices = db.query(models.HistoricalPrice).filter(
+                models.HistoricalPrice.asset_id == asset.id
+            ).order_by(models.HistoricalPrice.date.desc()).limit(10).all()
+            
+            change_pct = 0.0
+            if len(recent_prices) >= 2:
+                latest_price = recent_prices[0].price_eur
+                
+                # Buscar el primer precio que sea diferente al actual (último día de trading real)
+                previous_price = None
+                for hp in recent_prices[1:]:
+                    # Considerar diferente si hay más de 0.01% de diferencia
+                    if abs(hp.price_eur - latest_price) / latest_price > 0.0001:
+                        previous_price = hp.price_eur
+                        break
+                
+                # Si todos los precios son iguales, usar el más antiguo disponible
+                if previous_price is None and len(recent_prices) > 1:
+                    previous_price = recent_prices[-1].price_eur
+                
+                if previous_price and previous_price > 0:
+                    change_pct = ((latest_price - previous_price) / previous_price) * 100
+            
+            result.append({
+                "id": asset.id,
+                "name": asset.name,
+                "current_value": current_value,
+                "change_24h_pct": round(change_pct, 2)
+            })
+        
+        # Ordenar por cambio absoluto (los que más han movido)
+        result.sort(key=lambda x: abs(x["change_24h_pct"]), reverse=True)
+        
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"CHANGES ERROR: {str(e)}")
+
 
 # ============= Simulator Endpoints =============
 
