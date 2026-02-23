@@ -132,29 +132,31 @@ def get_assets_24h_changes(min_value: float = 1000, db: Session = Depends(get_db
                 continue
             
             # Obtener los últimos precios históricos para encontrar el último cambio real
-            # Buscamos hasta 10 días atrás para cubrir fines de semana y festivos
+            # Buscamos hasta 14 días atrás para cubrir fines de semana y festivos
+            from datetime import date, timedelta
+            today = date.today()
+            since_date = today - timedelta(days=14)
             recent_prices = db.query(models.HistoricalPrice).filter(
-                models.HistoricalPrice.asset_id == asset.id
-            ).order_by(models.HistoricalPrice.date.desc()).limit(10).all()
+                models.HistoricalPrice.asset_id == asset.id,
+                models.HistoricalPrice.date >= since_date,
+                models.HistoricalPrice.date < today
+            ).order_by(models.HistoricalPrice.date.desc()).all()
             
             change_pct = 0.0
-            if len(recent_prices) >= 2:
-                latest_price = recent_prices[0].price_eur
-                
-                # Buscar el primer precio que sea diferente al actual (último día de trading real)
+            if len(recent_prices) >= 1:
+                # El precio actual ya lo tenemos en current_price.
+                # recent_prices están ordenados del más reciente al más antiguo.
                 previous_price = None
-                for hp in recent_prices[1:]:
+                # Buscar el primer precio que sea diferente al actual (último día de trading real)
+                for hp in recent_prices:
                     # Considerar diferente si hay más de 0.01% de diferencia
-                    if abs(hp.price_eur - latest_price) / latest_price > 0.0001:
+                    if abs(hp.price_eur - current_price) / current_price > 0.0001:
                         previous_price = hp.price_eur
                         break
                 
-                # Si todos los precios son iguales, usar el más antiguo disponible
-                if previous_price is None and len(recent_prices) > 1:
-                    previous_price = recent_prices[-1].price_eur
-                
+                # Si todos los precios recientes son iguales al actual, ignoramos
                 if previous_price and previous_price > 0:
-                    change_pct = ((latest_price - previous_price) / previous_price) * 100
+                    change_pct = ((current_price - previous_price) / previous_price) * 100
             
             result.append({
                 "id": asset.id,
